@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
+
 
 const RecipeInput = z.object({
   ingredients: z.string().min(1).max(2000),
@@ -62,13 +63,39 @@ Mark each ingredient with haveIt=true if the user already has it (matches their 
 Suggest substitutions for any unusual or hard-to-find ingredients.
 Provide accurate nutrition estimates per serving.
 Build a shopping list of only the items the user does NOT already have.
-Give 2-4 helpful cooking tips.`;
+Give 2-4 helpful cooking tips.
 
-    const { experimental_output } = await generateText({
+Return ONLY a valid JSON object (no markdown fences, no commentary) matching exactly this shape:
+{
+  "name": string,
+  "description": string,
+  "prepTimeMinutes": number,
+  "cookTimeMinutes": number,
+  "servings": number,
+  "ingredients": [{ "item": string, "quantity": string, "haveIt": boolean }],
+  "substitutions": [{ "original": string, "substitute": string, "reason": string }],
+  "instructions": [string],
+  "nutritionPerServing": { "calories": number, "proteinGrams": number, "carbsGrams": number, "fatGrams": number },
+  "shoppingList": [string],
+  "tips": [string]
+}`;
+
+    const { text } = await generateText({
       model: gateway("google/gemini-3-flash-preview"),
-      experimental_output: Output.object({ schema: RecipeSchema }),
       prompt,
     });
 
-    return experimental_output;
+    let cleaned = text.trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start > 0 || end < cleaned.length - 1) {
+      if (start !== -1 && end > start) cleaned = cleaned.slice(start, end + 1);
+    }
+
+    const parsed = JSON.parse(cleaned);
+    return RecipeSchema.parse(parsed);
   });
